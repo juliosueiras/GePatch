@@ -13,6 +13,7 @@
 PSP_MODULE_INFO("GePatch", 0x1007, 1, 0);
 
 #define DRAW_NATIVE 0xABCDEF00
+#define GAMEID_DIR "disc0:/UMD_DATA.BIN"
 
 #define PITCH 960
 #define WIDTH 960
@@ -48,6 +49,22 @@ void logmsg(char *msg) {
   }
 
   pspSdkSetK1(k1);
+}
+
+// Copy from: https://github.com/SonicDX12/diva-patch-fr/blob/master/divapatch/main.c#L376
+int get_gameid(char *gameid) {
+    SceUID fd = sceIoOpen(GAMEID_DIR, PSP_O_RDONLY, 0777);
+    if (fd >= 0) {
+        sceIoRead(fd, gameid, 10);
+        sceIoClose(fd);
+
+        if (gameid[4] == '-') {
+            memmove(gameid + 4, gameid + 5, 5);
+        }
+
+        gameid[9] = '\0';
+    }
+    return fd;
 }
 
 static const u8 tcsize[4] = { 0, 2, 4, 8 }, tcalign[4] = { 0, 1, 2, 4 };
@@ -732,30 +749,44 @@ int draw_thread(SceSize args, void *argp) {
 }
 
 int module_start(SceSize args, void *argp) {
-  _sceGeEdramGetAddr = (void *)FindProc("sceGE_Manager", "sceGe_driver", 0xE47E40E4);
-  _sceGeGetList = (void *)FindProc("sceGE_Manager", "sceGe_driver", 0x67B01D8E);
-  _sceGeListUpdateStallAddr = (void *)FindProc("sceGE_Manager", "sceGe_driver", 0xE0D68148);
-  _sceGeListEnQueue = (void *)FindProc("sceGE_Manager", "sceGe_driver", 0xAB49E76A);
-  _sceGeListEnQueueHead = (void *)FindProc("sceGE_Manager", "sceGe_driver", 0x1C0D95A6);
-  _sceGeListSync = (void *)FindProc("sceGE_Manager", "sceGe_driver", 0x03444EB4);
-  _sceGeDrawSync = (void *)FindProc("sceGE_Manager", "sceGe_driver", 0xB287BD61);
+  sceUmdActivate(1, "disc0:");
+  sceUmdWaitDriveStat(UMD_WAITFORINIT);
 
-  sctrlHENPatchSyscall((u32)_sceGeEdramGetAddr, sceGeEdramGetAddrPatched);
-  sctrlHENPatchSyscall((u32)_sceGeListUpdateStallAddr, sceGeListUpdateStallAddrPatched);
-  sctrlHENPatchSyscall((u32)_sceGeListEnQueue, sceGeListEnQueuePatched);
-  sctrlHENPatchSyscall((u32)_sceGeListEnQueueHead, sceGeListEnQueueHeadPatched);
-  // sctrlHENPatchSyscall((u32)_sceGeListSync, sceGeListSyncPatched);
-  sctrlHENPatchSyscall((u32)_sceGeDrawSync, sceGeDrawSyncPatched);
+  char gameid[16];
+  int enable = 1;
+  if (get_gameid(gameid) >= 0) {
+    if(strcmp(gameid, "UCUS98609") == 0) {
+      enable = 0;
+    }
+  }
+  sceUmdDeactivate(1, "disc0:");
 
-  _sceDisplaySetFrameBuf = (void *)FindProc("sceDisplay_Service", "sceDisplay_driver", 0x289D82FE);
-  sctrlHENPatchSyscall((u32)_sceDisplaySetFrameBuf, sceDisplaySetFrameBufPatched);
+  if (enable) {
+    _sceGeEdramGetAddr = (void *)FindProc("sceGE_Manager", "sceGe_driver", 0xE47E40E4);
+    _sceGeGetList = (void *)FindProc("sceGE_Manager", "sceGe_driver", 0x67B01D8E);
+    _sceGeListUpdateStallAddr = (void *)FindProc("sceGE_Manager", "sceGe_driver", 0xE0D68148);
+    _sceGeListEnQueue = (void *)FindProc("sceGE_Manager", "sceGe_driver", 0xAB49E76A);
+    _sceGeListEnQueueHead = (void *)FindProc("sceGE_Manager", "sceGe_driver", 0x1C0D95A6);
+    _sceGeListSync = (void *)FindProc("sceGE_Manager", "sceGe_driver", 0x03444EB4);
+    _sceGeDrawSync = (void *)FindProc("sceGE_Manager", "sceGe_driver", 0xB287BD61);
 
-  // SceUID thid = sceKernelCreateThread("draw_thread", draw_thread, 0x11, 0x4000, 0, NULL);
-  // if (thid >= 0)
+    sctrlHENPatchSyscall((u32)_sceGeEdramGetAddr, sceGeEdramGetAddrPatched);
+    sctrlHENPatchSyscall((u32)_sceGeListUpdateStallAddr, sceGeListUpdateStallAddrPatched);
+    sctrlHENPatchSyscall((u32)_sceGeListEnQueue, sceGeListEnQueuePatched);
+    sctrlHENPatchSyscall((u32)_sceGeListEnQueueHead, sceGeListEnQueueHeadPatched);
+    // sctrlHENPatchSyscall((u32)_sceGeListSync, sceGeListSyncPatched);
+    sctrlHENPatchSyscall((u32)_sceGeDrawSync, sceGeDrawSyncPatched);
+
+    _sceDisplaySetFrameBuf = (void *)FindProc("sceDisplay_Service", "sceDisplay_driver", 0x289D82FE);
+    sctrlHENPatchSyscall((u32)_sceDisplaySetFrameBuf, sceDisplaySetFrameBufPatched);
+
+    // SceUID thid = sceKernelCreateThread("draw_thread", draw_thread, 0x11, 0x4000, 0, NULL);
+    // if (thid >= 0)
     // sceKernelStartThread(thid, 0, NULL);
 
-  sceKernelDcacheWritebackInvalidateAll();
-  sceKernelIcacheClearAll();
+    sceKernelDcacheWritebackInvalidateAll();
+    sceKernelIcacheClearAll();
 
+  }
   return 0;
 }
